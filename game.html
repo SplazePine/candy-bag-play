@@ -17,7 +17,7 @@
 <canvas id="c" tabindex="0" aria-label="Bag of Tricks. Pick a costume, pack candy into its bag, knock on 5 doors, tap candy to use it against the monsters."></canvas>
 <script>
 "use strict";
-const Q = new URLSearchParams(location.search), V = "1";
+const Q = new URLSearchParams(location.search), V = "2";
 const ERR = []; addEventListener("error", e => ERR.push(String(e.message || e))); addEventListener("unhandledrejection", e => ERR.push("rejection: " + e.reason));
 let SW = { seed: 0, fast: 0, card: false };
 
@@ -94,10 +94,12 @@ offered: [], picked: [], left: [], won: false, tokens: 0, shop: null, patched: [
 stats: { eaten: 0, dmg: 0, healed: 0, blocked: 0, combos: 0, lifesteal: 0, phased: 0, brewed: 0, soul: 0, cleansed: 0, unwrapped: 0 }, last: null, leaveWarn: 0 };
 sel = null; drag = null; layout(); say("Drag candy to pack your bag. Tap one to turn it.", 4000);
 }
-let W = 0, H = 0, DPR = 1, L = null, drag = null, sel = null, outlines = {}, msg = "", msgT = 0, msgDur = 1600;
+let W = 0, H = 0, FW = 0, FH = 0, OX = 0, OY = 0, DPR = 1, L = null, drag = null, sel = null, outlines = {}, msg = "", msgT = 0, msgDur = 1600;
 function layout() {
-W = innerWidth; H = innerHeight; if (!W || !H) return; DPR = Math.min(devicePixelRatio || 1, 2.5);
-cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+FW = innerWidth; FH = innerHeight; if (!FW || !FH) return; DPR = Math.min(devicePixelRatio || 1, 2.5);
+W = H = Math.min(FW, FH); OX = Math.round((FW - W) / 2); OY = FH > FW ? Math.round(Math.max(0, Math.min((FH - H) / 2, FH * 0.7 - H))) : Math.round((FH - H) / 2);
+cv.width = Math.round(FW * DPR); cv.height = Math.round(FH * DPR);
+CAM.x = W / 2; CAM.y = H / 2; CAM.z = 1;
 const land = W / H >= 0.9, l = { land };
 if (land) {
 l.top = Math.max(40, Math.round(H * 0.12));
@@ -128,24 +130,34 @@ l.lift = Math.round(l.c * 0.9);
 L = l; outlines = {};
 if (G && G.C) for (const p of P) place(p, true);
 }
+function trayFlow(tr, c) {   // shelf layout of the tray candy at cell size c: top-left of each + the bottom/right edge used
+const tx = L.rx + (L.land ? 6 : 2), ty = L.land ? L.ry + Math.round(L.c * 1.2) : L.ry + 4, out = [];
+let x = tx, y = ty, rowH = 0, bottom = ty, right = tx;
+for (const q of tr) { const [w, h] = dims(cellsOf(q)); if (x + w * c > L.rx + L.rw && x > tx) { x = tx; y += rowH + 8; rowH = 0; }
+out.push([x, y]); bottom = Math.max(bottom, y + h * c); right = Math.max(right, x + w * c); x += w * c + 10; rowH = Math.max(rowH, h * c); }
+return { out, bottom, right };
+}
+function trayScale(tr) {     // the biggest size (full, or smaller steps) at which ALL tray candy fits above the buttons
+const limit = L.btnY - 6;
+for (const k of [1, 0.85, 0.72, 0.62, 0.54, 0.46, 0.4]) { const f = trayFlow(tr, L.c * k); if (f.bottom <= limit && f.right <= L.rx + L.rw + 2) return k; }
+return 0.4;
+}
 function place(p, snap) {
-if (p.where === "bag") { p.x = L.gx + p.col * L.c; p.y = L.gy + p.row * L.c; }
-else { const tr = P.filter(q => q.where === "tray"), i = tr.indexOf(p), c = L.c;
-const tx = L.rx + (L.land ? 6 : 2), ty = L.land ? L.ry + Math.round(c * 1.2) : L.ry + 4;
-let x = tx, y = ty, rowH = 0;
-for (let k = 0; k <= i; k++) { const [w, h] = dims(cellsOf(tr[k])); if (x + w * c > L.rx + L.rw && x > tx) { x = tx; y += rowH + 8; rowH = 0; } if (k === i) break; x += w * c + 10; rowH = Math.max(rowH, h * c); }
-p.x = x; p.y = y; }
+if (p.where === "bag") { p.x = L.gx + p.col * L.c; p.y = L.gy + p.row * L.c; p.s = 1; }
+else { const tr = P.filter(q => q.where === "tray"), k = trayScale(tr), f = trayFlow(tr, L.c * k), i = tr.indexOf(p);
+L.ts = k; [p.x, p.y] = f.out[i] || [L.rx, L.ry]; p.s = k; }
 if (snap) { p.dx = p.x; p.dy = p.y; }
 }
+const pcs = p => (p.where === "tray" && !(drag && drag.p === p && drag.moved) ? (p.s || 1) : 1) * L.c;   // on-screen cell size of a piece
 function toTray(p) { p.where = "tray"; p.col = p.row = -1; for (const q of P) if (q.where === "tray") place(q); }
 function occupied(except, phase) { const o = new Set(); for (const p of P) if (p !== except && p.where === "bag" && !!DEF[p.id].phase === !!phase) for (const [x, y] of cellsOf(p)) o.add((p.col + x) + "," + (p.row + y)); return o; }
 function fits(p, col, row, rot) { const o = occupied(p, DEF[p.id].phase);
 return rotCells(DEF[p.id].cells, rot).every(([x, y]) => { const a = col + x, b = row + y; return inMask(a, b) && !o.has(a + "," + b); }); }
 function hit(px, py) {     // the mint floats on top, but only its own top-right corner grabs it (so the candy under it stays tappable)
 const list = P.slice().sort((a, b) => (b === sel) - (a === sel) || !!DEF[b.id].phase - !!DEF[a.id].phase);
-for (const p of list) for (const [x, y] of cellsOf(p)) { const X = p.dx + x * L.c, Y = p.dy + y * L.c;
+for (const p of list) for (const [x, y] of cellsOf(p)) { const cs = pcs(p), X = p.dx + x * cs, Y = p.dy + y * cs;
 if (DEF[p.id].phase && p.where === "bag" && !(drag && drag.p === p)) { if (P.some(q => q !== p && q.where === "bag" && cellsOf(q).some(([u, v]) => q.col + u === p.col && q.row + v === p.row)) && !(px >= X + L.c * 0.5 && py < Y + L.c * 0.48)) continue; }
-if (px >= X - 2 && px < X + L.c + 2 && py >= Y - 2 && py < Y + L.c + 2) return p; }
+if (px >= X - 2 && px < X + cs + 2 && py >= Y - 2 && py < Y + cs + 2) return p; }
 return null;
 }
 const inRect = (px, py, r) => r && px >= r[0] && px < r[0] + r[2] && py >= r[1] && py < r[1] + r[3];
@@ -481,7 +493,7 @@ function setMuted(m) { muted = m; try { localStorage.setItem("bag-of-tricks-mute
 document.addEventListener("visibilitychange", () => { if (!AC) return; if (document.hidden) AC.suspend(); else AC.resume(); });
 const JUKE = ["title", "street", "fight", "shop", "boss", "win", "lose"];
 let BTN = [];          // rebuilt every frame: { id, r: [x,y,w,h], label, kind }
-function toLocal(e) { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+function toLocal(e) { const r = cv.getBoundingClientRect(), v = view(); return [(e.clientX - r.left - v.ox) / v.k, (e.clientY - r.top - v.oy) / v.k]; }
 cv.addEventListener("contextmenu", e => e.preventDefault());
 cv.addEventListener("pointerdown", e => {
 e.preventDefault(); cv.focus({ preventScroll: true }); S.ptypes[e.pointerType] = (S.ptypes[e.pointerType] || 0) + 1;
@@ -494,7 +506,8 @@ const p = hit(px, py);
 if (e.button === 2) { if (G.scene === "street") { if (drag) rotate(drag.p); else if (p) rotate(p); } return; }
 if (!p || drag) return;
 try { cv.setPointerCapture(e.pointerId); } catch (_) {}
-drag = { p, id: e.pointerId, sx: px, sy: py, ox: px - p.dx, oy: py - p.dy, t: performance.now(), moved: false, touch: e.pointerType !== "mouse", from: { where: p.where, col: p.col, row: p.row, rot: p.rot } };
+const gs0 = pcs(p) / L.c;   // a shrunk tray candy grows back to full size under the finger, keeping the same grab point
+drag = { p, id: e.pointerId, sx: px, sy: py, ox: (px - p.dx) / gs0, oy: (py - p.dy) / gs0, t: performance.now(), moved: false, touch: e.pointerType !== "mouse", from: { where: p.where, col: p.col, row: p.row, rot: p.rot } };
 if (G.scene === "street") sel = p;
 });
 cv.addEventListener("pointermove", e => {
@@ -541,6 +554,31 @@ if (id === "copy") { copyShare(); return; }
 if (id === "juke") { music.juke = (music.juke + 1) % JUKE.length; music.want = JUKE[music.juke]; return; }
 }
 let shake = 0, t0 = performance.now();
+const CAM = { x: 0, y: 0, z: 1, scene: "" };
+function camKick(x, y, z) { CAM.x = x; CAM.y = y; CAM.z = z; }   // start a move-in from (x, y, z); it eases back to the full view
+function camTarget(now) {
+let tx = W / 2, ty = H / 2, tz = 1;
+if (G.scene === "fight" && G.mon && L) { const [mx, my, mh] = stagePos("mon");
+if (now - (G.mon.atk || 0) < 420) { tz = 1.1; tx = mx; ty = my - mh * 0.4; }                     // monster attacks: punch in on it
+else if (G.busy && G.mon.def.boss) { tz = 1.06; tx = mx; ty = my - mh * 0.4; }                    // Big Beelz winds up: slow push in
+else if (now - (G.mon.hurt || 0) < 220) { tz = 1.035; tx = mx; ty = my - mh * 0.4; } }           // a candy lands: tiny nudge
+return [tx, ty, tz];
+}
+function camStep(now, dt) {
+if (G.scene !== CAM.scene) {   // scene changes: glide in from where the action is
+const prev = CAM.scene; CAM.scene = G.scene;
+if (L && G.scene === "street" && prev !== "shop") camKick(L.rx + L.rw * 0.5, L.top + L.c * 0.4, 1.35);          // from the door path, pan to the bag
+else if (L && G.scene === "street") camKick(L.gx + L.gw / 2, L.gy + L.gh / 2, 1.25);                            // back from the shop: onto the bag
+else if (L && G.scene === "shop") camKick(W * 0.62, H * 0.42, 1.3);                                             // walk up to the Porch Shop
+else if (L && G.scene === "fight") { const [mx, my, mh] = stagePos("mon"); camKick(mx, my - mh * 0.4, 1.4); }    // the door opens on the monster
+else if (G.scene === "end") camKick(W / 2, H * 0.4, 1.2);
+}
+const [tx, ty, tz] = camTarget(now), k = Math.min(1, dt / (SW.fast ? 40 : 160));
+CAM.x += (tx - CAM.x) * k; CAM.y += (ty - CAM.y) * k; CAM.z += (tz - CAM.z) * k;
+if (Math.abs(CAM.z - tz) < 0.002 && Math.abs(CAM.x - tx) < 0.5 && Math.abs(CAM.y - ty) < 0.5) { CAM.x = tx; CAM.y = ty; CAM.z = tz; }
+const half = W / (2 * CAM.z); CAM.vx = Math.max(half, Math.min(W - half, CAM.x)); CAM.vy = Math.max(half, Math.min(H - half, CAM.y));   // never show past the edges
+}
+const view = () => ({ ox: OX + W / 2 - CAM.vx * CAM.z, oy: OY + H / 2 - CAM.vy * CAM.z, k: CAM.z });
 function rr(x, y, w, h, r) { cx.beginPath(); cx.moveTo(x + r, y); cx.arcTo(x + w, y, x + w, y + h, r); cx.arcTo(x + w, y + h, x, y + h, r); cx.arcTo(x, y + h, x, y, r); cx.arcTo(x, y, x + w, y, r); cx.closePath(); }
 function txt(t, x, y, size, col, align, maxW, weight) {
 cx.font = `${weight || "bold"} ${size}px Georgia, 'Times New Roman', serif`; cx.textAlign = align || "left"; cx.textBaseline = "top";
@@ -599,7 +637,8 @@ const onTopOfCandy = p => DEF[p.id].phase && p.where === "bag" && P.some(q => q 
 function drawPiece(p, now, lifted) {
 const c = L.c, d = DEF[p.id], [w0, h0] = dims(d.cells), [w, h] = dims(cellsOf(p)), fight = G.scene === "fight";
 let x = p.dx, y = p.dy, k = 1;
-if (!lifted && onTopOfCandy(p)) { k = 0.6; x += c * 0.42; y -= c * 0.02; }       // a phased Boo Mint floats in the top-right of the cell it shares
+if (!lifted && onTopOfCandy(p)) { k = 0.6; x += c * 0.42; y -= c * 0.02; }
+else if (!lifted && p.where === "tray" && (p.s || 1) < 1) k = p.s;              // tray shrunk to fit above the buttons       // a phased Boo Mint floats in the top-right of the cell it shares
 const pul = now - p.pulse < 500 ? 1 + 0.12 * Math.sin((now - p.pulse) / 500 * Math.PI) : 1;
 cx.save(); cx.translate(x + w * c * k / 2, y + h * c * k / 2); cx.scale(pul * (lifted ? 1.06 : 1) * k, pul * (lifted ? 1.06 : 1) * k); cx.translate(-(x + w * c / 2), -(y + h * c / 2));
 const why = fight && p.where === "bag" ? canUse(p) : "";
@@ -789,7 +828,12 @@ if (S.firstTap && now - S.firstTapAt < 2500 && !document.hidden) S.firstTapFrame
 if (!L) layout(); if (!L) return;
 for (let i = 0; i < ACT.length; i++) if (now >= ACT[i][0]) { const f = ACT[i][1]; ACT.splice(i--, 1); try { f(); } catch (e) { ERR.push(String(e)); } }
 pumpMusic();
-BTN = []; cx.setTransform(DPR, 0, 0, DPR, 0, 0);
+BTN = []; camStep(now, dt);
+cx.setTransform(DPR, 0, 0, DPR, 0, 0);
+if (FW !== W || FH !== H) { cx.fillStyle = "#07030b"; cx.fillRect(0, 0, FW, FH);   // letterbox bands: the street, dimmed
+if (LOADED.street) { const im = IMG.street, sc = Math.max(FW / im.width, FH / im.height); cx.globalAlpha = 0.28; cx.drawImage(im, (FW - im.width * sc) / 2, (FH - im.height * sc) / 2, im.width * sc, im.height * sc); cx.globalAlpha = 1; }
+cx.fillStyle = "rgba(0,0,0,.35)"; cx.fillRect(OX - 3, OY - 3, W + 6, H + 6); }
+{ const v = view(); cx.save(); cx.setTransform(DPR * v.k, 0, 0, DPR * v.k, DPR * v.ox, DPR * v.oy); cx.beginPath(); cx.rect(0, 0, W, H); cx.clip(); }
 if (G.scene === "title") drawTitle(now);
 else if (G.scene === "select") drawSelect(now);
 else if (G.scene === "end") drawEnd(now);
@@ -813,7 +857,8 @@ if (G.scene === "shop") { cx.fillStyle = "rgba(8,3,12,.25)"; cx.fillRect(0, 0, W
 const fs = Math.max(13, Math.min(19, W / 30)), hx = L.land ? L.rx : 10, hw = L.land ? L.rw : W - 70;
 if (G.scene === "street") {
 txt(G.door >= 5 ? "The House" : `Door ${G.door + 1} of 5`, hx, 10, fs * 1.15, G.door >= 5 ? "#ff7a4a" : "#ffa43a", "left", hw * 0.6);
-txt(`${G.hp}/${G.maxhp} HP · ${G.tokens} tokens`, Math.min(hx + hw, W - 54), 12 + fs * 0.1, fs * 0.8, "#f4e6d0", "right", hw * 0.42, "600");
+if (hw < 300) txt(`${G.hp}/${G.maxhp} HP · ${G.tokens} tokens`, hx, 12 + fs * 1.2, fs * 0.72, "#f4e6d0", "left", Math.min(hw, W - 54 - hx), "600");   // narrow square: own line
+else txt(`${G.hp}/${G.maxhp} HP · ${G.tokens} tokens`, Math.min(hx + hw, W - 54), 12 + fs * 0.1, fs * 0.8, "#f4e6d0", "right", hw * 0.42, "600");
 const tr = P.filter(p => p.where === "tray"); if (tr.length) txt(tr.length > 1 ? "New candy:" : "New treat:", L.rx + 4, (L.land ? L.ry + L.c * 1.2 : L.ry + 4) - fs - 2, fs * 0.8, "#ffe08a", "left", L.rw);
 if (sel && P.includes(sel)) { const d = DEF[sel.id], lines = wrap(`${d.name} (${d.cost} Sugar): ${d.txt}`, (L.land ? L.rw : W - 20), Math.round(fs * 0.72), "600");
 lines.slice(0, 3).forEach((ln, i) => txt(ln, L.land ? L.rx : 10, (L.land ? L.btnY - 8 - (Math.min(3, lines.length) - i) * (fs * 0.72 + 3) : L.sceneH - 6 - (Math.min(3, lines.length) - i) * (fs * 0.72 + 3)), Math.round(fs * 0.72), "#f4f0e8", "left", L.land ? L.rw : W - 20, "600")); }
@@ -834,13 +879,14 @@ FX = FX.filter(f => now - f.t < 1100); for (const f of FX) { const k = (now - f.
 if (!SW.card) { const r = [W - 46, 2, 44, 44]; BTN.unshift({ id: "mute", r, label: "mute", kind: "ctl" }); cx.fillStyle = "rgba(18,10,20,.55)"; rr(r[0], r[1], r[2], r[3], 10); cx.fill();
 cx.fillStyle = "#fff"; cx.beginPath(); cx.moveTo(r[0] + 12, r[1] + 18); cx.lineTo(r[0] + 18, r[1] + 18); cx.lineTo(r[0] + 25, r[1] + 11); cx.lineTo(r[0] + 25, r[1] + 33); cx.lineTo(r[0] + 18, r[1] + 26); cx.lineTo(r[0] + 12, r[1] + 26); cx.fill();
 cx.strokeStyle = muted ? "#ff6a6a" : "#fff"; cx.lineWidth = 2.5; cx.beginPath(); if (muted) { cx.moveTo(r[0] + 29, r[1] + 16); cx.lineTo(r[0] + 37, r[1] + 28); cx.moveTo(r[0] + 37, r[1] + 16); cx.lineTo(r[0] + 29, r[1] + 28); } else { cx.arc(r[0] + 26, r[1] + 22, 8, -0.8, 0.8); } cx.stroke(); }
+cx.restore();
 }
-window.__gs = () => ({ scene: G.scene, costume: G.costume || null, frame: { w: W, h: H, dpr: DPR }, framed: FRAMED, layout: L.land ? "landscape" : "portrait", cell: L.c, lift: L.lift, seed: SEED,
+window.__gs = () => ({ scene: G.scene, costume: G.costume || null, frame: { w: W, h: H, dpr: DPR, fw: FW, fh: FH, ox: OX, oy: OY }, view: Object.assign(view(), { moving: CAM.z !== 1 || CAM.vx !== W / 2 || CAM.vy !== H / 2 }), framed: FRAMED, layout: L.land ? "landscape" : "portrait", cell: L.c, lift: L.lift, seed: SEED,
 grid: { x: L.gx, y: L.gy, cols: COLS, rows: ROWS, w: L.gw, h: L.gh, mask: MASK.slice() }, buttons: Object.fromEntries(BTN.map(b => [b.id, b.r])),
 door: G.door, hp: G.hp, maxhp: G.maxhp, block: G.block, sugar: G.sugar, turn: G.turn, turns: G.turns, busy: !!G.busy, acts: ACT.length, offers: (G.offers || []).slice(), picked: (G.picked || []).slice(), left: (G.left || []).slice(), share: G.share || "", won: G.won, ripened: !!G.ripened,
 tokens: G.tokens, bought: (G.bought || []).slice(), patched: (G.patched || []).length, shop: G.scene === "shop" ? G.shop.items.map(it => ({ kind: it.kind, id: it.id || null, price: it.price, sold: !!it.sold })) : null,
 mon: G.mon ? { id: G.mon.def.id, name: G.mon.def.name, boss: !!G.mon.def.boss, phase: G.mon.phase, hp: G.mon.hp, max: G.mon.max, block: G.mon.block, burn: G.mon.burn, rage: G.mon.rage, sour: G.mon.sour, miss: G.mon.miss, intent: G.mon.dead ? null : intentText(intent()), kind: G.mon.dead ? null : intent()[0], value: G.mon.dead ? 0 : atkVal(intent()[1]) } : null,
-pieces: P.map(p => { const [w, h] = dims(cellsOf(p)); return { uid: p.uid, id: p.id, where: p.where, col: p.col, row: p.row, rot: p.rot, x: p.x, y: p.y, w, h, cells: cellsOf(p), cost: DEF[p.id].cost, sig: !!DEF[p.id].sig, phase: !!DEF[p.id].phase, used: p.used, hidden: p.hidden, cavity: p.cavity, wrapped: p.wrapped, brewed: p.brewed, charge: p.charge, scorch: p.scorch || 0, tap: onTopOfCandy(p) ? [p.x + L.c * 0.8, p.y + L.c * 0.2] : [p.x + (cellsOf(p)[0][0] + 0.5) * L.c, p.y + (cellsOf(p)[0][1] + 0.5) * L.c], usable: G.scene === "fight" && p.where === "bag" ? canUse(p) === "" : false }; }),
+pieces: P.map(p => { const [w, h] = dims(cellsOf(p)); return { uid: p.uid, id: p.id, where: p.where, col: p.col, row: p.row, rot: p.rot, x: p.x, y: p.y, w, h, cells: cellsOf(p), cost: DEF[p.id].cost, sig: !!DEF[p.id].sig, phase: !!DEF[p.id].phase, used: p.used, hidden: p.hidden, cavity: p.cavity, wrapped: p.wrapped, brewed: p.brewed, charge: p.charge, scorch: p.scorch || 0, s: p.where === "tray" ? (p.s || 1) : 1, tap: onTopOfCandy(p) ? [p.x + L.c * 0.8, p.y + L.c * 0.2] : [p.x + (cellsOf(p)[0][0] + 0.5) * pcs(p), p.y + (cellsOf(p)[0][1] + 0.5) * pcs(p)], usable: G.scene === "fight" && p.where === "bag" ? canUse(p) === "" : false }; }),
 stats: Object.assign({}, G.stats), rotations: S.rotations, validDrops: S.validDrops, invalidDrops: S.invalidDrops, drags: S.drags, taps: S.taps, keys: S.keys, uses: S.uses,
 pointerTypes: S.ptypes, dragging: !!(drag && drag.moved), scroll: [scrollX, scrollY, document.scrollingElement ? document.scrollingElement.scrollTop : 0],
 art: { loaded: Object.assign({}, LOADED), requested: Object.keys(IMG), lazyStarted, lazyBeforeTap: S.lazyBeforeTap, drawn: Object.assign({}, DRAWN) },
