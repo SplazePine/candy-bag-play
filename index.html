@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="icon" href="data:,">
+<title>Bag of Tricks - a Splazetown Halloween candy-bag battler</title>
+<!-- X PLAYER CARD (16:9, X keeps 16:9 on desktop). Post THIS page, never game.html. Links carry ?v=N (X caches per URL).
+     All links point to the live address https://splazepine.github.io/candy-bag-play/ -->
+<meta name="twitter:card" content="player">
+<meta name="twitter:title" content="Bag of Tricks">
+<meta name="twitter:description" content="Be a Vampire, Ghost or Witch: pack candy into your bag, knock on 5 doors and beat Big Beelz! A Splazetown Halloween game, play it right here in the post.">
+<meta name="twitter:image" content="https://splazepine.github.io/candy-bag-play/card.png?v=1">
+<meta name="twitter:image:alt" content="A painted Halloween street at night with a vampire, a ghost and a witch trick-or-treating and the Bag of Tricks logo">
+<meta name="twitter:player" content="https://splazepine.github.io/candy-bag-play/game.html?v=1">
+<meta name="twitter:player:width" content="640">
+<meta name="twitter:player:height" content="360">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Bag of Tricks">
+<meta property="og:description" content="Be a Vampire, Ghost or Witch: pack candy into your bag, knock on 5 doors and beat Big Beelz! A Splazetown Halloween game.">
+<meta property="og:image" content="https://splazepine.github.io/candy-bag-play/card.png?v=1">
+<meta property="og:url" content="https://splazepine.github.io/candy-bag-play/?v=1">
+<style>
+  html,body{margin:0;height:100%;background:#120a14;color:#f3e4cc;font:16px system-ui,sans-serif}
+  main{max-width:680px;margin:0 auto;padding:24px 16px;text-align:center}
+  h1{color:#f2a444}
+  .frame{width:100%;max-width:640px;aspect-ratio:16/9;border:0;border-radius:12px;background:#000}
+  /* Phones (X's in-app browser opens this page on tap): ONLY the game, full screen (same recipe as Tall Tap). */
+  @media (max-width: 700px), (orientation: portrait), (pointer: coarse) and (max-height: 600px) {
+    html,body{height:100%;overflow:hidden;background:#000;overscroll-behavior:none}
+    main{max-width:none;margin:0;padding:0}
+    main > h1, main > p{display:none}
+    .frame{position:fixed;top:env(safe-area-inset-top,0px);left:env(safe-area-inset-left,0px);
+           width:calc(100vw - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px));
+           height:calc(100vh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));
+           height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));
+           max-width:none;aspect-ratio:auto;border:0;border-radius:0;margin:0}
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Bag of Tricks</h1>
+  <p>Be a Vampire, Ghost or Witch: pack candy into your bag, knock on 5 doors and beat Big Beelz! A Splazetown Halloween game.</p>
+  <iframe class="frame" src="game.html?v=1" title="Bag of Tricks"
+          sandbox="allow-popups allow-same-origin allow-scripts allow-presentation"></iframe>
+  <p><a href="game.html?v=1" target="_blank" rel="noopener" style="color:#a8d0dc">Open full screen ↗</a></p>
+</main>
+</body>
+</html>
